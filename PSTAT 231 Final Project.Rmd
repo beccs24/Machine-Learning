@@ -1,0 +1,675 @@
+---
+title: "Predicting NBA 2K21 Player Overall Ratings"
+subtitle: "PSTAT 231 Final Project"
+author: 
+- "Rebecca Chang"
+- "UCSB Spring 2023"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+### Introduction
+
+The purpose of this project is to develop the best machine learning model that predicts the overall rating of NBA players in the video game NBA 2K21. ![](https://mlpnk72yciwc.i.optimole.com/cqhiHLc.WqA8~2eefa/w:auto/h:auto/q:75/https://bleedingcool.com/wp-content/uploads/2020/07/NBA-2K21-Mamba-Forever-Edition-Next-Gen-Cover.jpg)
+
+#### What is NBA 2K?
+
+NBA 2K is a popular basketball video game that emulates real players in the NBA (National Basketball Association) and is often hailed for its realistic graphics and gameplay. Each year, a new installment is released which updates any changes that were made to the roster of each team. It is also an opportunity to re-evaluate the rating of each player based on how well the real-life players performed in the previous season. Each installment is named after the following season and features new cover athletes. For example, NBA 2K21 was released in late 2020 after the end of the 2019-2020 season and features cover athletes Damian Lillard, Zion Williamson, and Kobe Bryant across the different editions.
+
+#### What are ratings and how are they calculated?
+
+The rating system in NBA 2K assigns each game player/character a overall score ranging from 40 to the high 90's based on the performance of the real corresponding NBA player. This includes statistics on the players points per game, field goal percentage, plus/minus rating, and many more. Multiple players can be ranked with the same score and a higher score corresponds to a better player. Although there are numerous sub-categories such at 3-point rating for each player, this project will only focus on predicting the overall rating for simplicity.
+
+![](https://th.bing.com/th/id/R.5036006de38f92396e8cf16bd62673e9?rik=O53HMmIXU46F1A&riu=http%253a%252f%252fwww.nba-live.com%252fwp-content%252fuploads%252f2016%252f05%252fnba2k16_curry_99_overall.jpg&ehk=F2GnnDmA65ajchyGoF%252bwXSeNN%252ffKfIMFGfv4EDjf1IQ%253d&risl=&pid=ImgRaw&r=0)
+
+#### Why?
+
+By accurately predicting individual player ratings, gamers are able to choose the players that will perform better in the gameplay. They will also better understand which statistics of their favorite players impact their rating and ensure that the rating is an impartial and honest representation of reality. Overall, it provides a better gaming experience and gamers can learn more about the rating system in the game.
+
+#### Project Outline
+
+We will start by reading in our data and doing some data manipulation and cleaning to obtain only the relevant information we need. Then, we will perform some exploratory data analysis to better understand our variables and data, specifically how the other predictors relate to our prediction variable of ratings. We will then split our data into train/test sets, create a recipe, and set up a 10-fold cross validation. We will use Linear Regression, Ridge Regression, Lasso Regression, Elastic Net Linear Regression, K-Nearest Neighbors, Random Forest, and Boosted Trees to model the training data. The model that performs the best will be fit on the testing data so we can analyze its effectiveness. Let's begin!
+
+### Exploratory Data Analysis
+
+By exploring the collected data and performing some preliminary analysis, we can gain a better understanding of our data and make any adjustments if necessary. This includes checking for any missing data, converting necessary qualitative variables into factors, removing unhelpful variables, and tidying up the data before we begin visualizing and analyzing key variables.
+
+#### Loading Packages and Exploring Data
+
+We want to first load any R packages we will be needing later on and read in our data.
+
+```{r message = FALSE}
+library(tidyverse)
+library(dplyr)
+library(tidymodels)
+library(readr)
+library(kknn)
+library(ISLR)
+library(discrim)
+library(poissonreg)
+library(glmnet)
+library(corrr)
+library(corrplot)
+library(ggplot2)
+library(ggthemes)
+library(naniar)
+library(janitor)
+library(vip)
+tidymodels_prefer()
+
+# Assigning a name to the dataset
+ratings <- read.csv("/Users/Rebecca/PSTAT 231 S'23/Final Project/nba_ratings_2014-2020.csv")
+
+# View the first 10 rows of data
+head(ratings, 10)
+view(ratings)
+```
+
+We notice that the data lists each player alphabetically and provides information about their team, age, various game statistics, as well as rating for each season from 2014 to 2020.
+
+#### Tidying Our Data
+
+The dataset we have currently is very large and includes information that is not necessary for this project. Since the data includes multiple years, we want to filter our data to see only the most recently available year. There are also many predictor variables, so we want to further filter our variables so only the most relevant variables are used in our prediction. For example, team name `TEAM`, observation number `X`, and `SEASON` don't seem to be helpful in predicting the rating, so we will take those variables out. Lastly, we will clean the column names so that they are all snake case and are standardized.
+
+```{r}
+# Filtering the year and variables
+ratings19_20 <- ratings %>% 
+  filter(SEASON == "2019-20") %>% 
+  select(-TEAM, -X, -SEASON) %>% 
+  clean_names()
+
+head(ratings19_20)
+dim(ratings19_20)
+```
+
+Our data now includes 507 observations and 29 key variables, including our response variable `ratings`. A brief description of the following variables are as follows:
+
+`player`: Name of NBA player
+
+`age`: Age of player
+
+`gp`: Games played
+
+`w`: Number of games won
+
+`l`: Number of games lost
+
+`min`: Minutes played per game
+
+`pts`: Points per game
+
+`fgm`: Field goals made per game
+
+`fga`: Field goal attempts per game
+
+`fg.`: Field goal percentage
+
+`x3pm`: 3-pointers made per game
+
+`x3pa`: 3-point attempts per game
+
+`x3p`: 3-point percentage
+
+`ftm`: Free throws made per game
+
+`fta`: Free throw attempts per game
+
+`ft`: Free throw percentage
+
+`oreb`: Offensive rebounds per game
+
+`dreb`: Defensive rebounds per game
+
+`reb`: Rebounds per game
+
+`ast`: Assists per game
+
+`tov`: Turnovers per game
+
+`stl`: Steals per game
+
+`blk`: Blocks per game
+
+`pf`: Personal fouls per game
+
+`fp`: Fantasy points
+
+`dd2`: Number of double-doubles
+
+`td3`: Number of triple-doubles
+
+`x`: +/- player point differential
+
+`ratings`: Rating of the player on a 99-point scale
+
+Now let's check if there's any missing data before we dig a little deeper into our data.
+
+##### Missing Data
+
+```{r}
+vis_miss(ratings19_20)
+```
+
+We see that there are no missing data, so we can proceed to the next step in our visual exploratory data analysis.
+
+#### Visual EDA
+
+##### Ratings
+
+We will first take a closer look at our response variable `ratings` by plotting a histogram.
+
+```{r}
+ggplot(ratings19_20, aes(ratings)) +
+  geom_bar(fill='blue') +
+  labs(
+    title = "Distribution of Ratings"
+  )
+```
+
+We notice that in this particular season, the ratings range from 67 to 97. There is also a peak at 72, which means the most common rating for the season is 72 with a mean that seems to be around 75. Only a handful of players have a rating higher than 90.
+
+##### PTS
+
+Next, we will look at the variable `pts`, which is one of the most common statistics when judging a player's performance.
+
+```{r}
+ggplot(ratings19_20, aes(pts)) +  
+  geom_boxplot(fill = "red")
+
+ratings19_20 %>% 
+  ggplot(aes(x=pts, y=ratings)) + 
+  geom_jitter(width = 0.5, size = 1) +
+  geom_smooth(method = "lm", se =F, col="darkred") +
+  labs(title = "Points vs. Ratings")
+```
+
+Looking at the boxplot, we notice that the average points per game across all the players are between 0 and the mid-30s, with the most common being around 8 points per game. There are several outliers for players who achieved points per game higher than 25.
+
+After plotting the graph to take a closer look at the relationship between points and ratings, we see an apparent positive linear association. This means that players who had more points per game tended to have a higher overall rating, as expected.
+
+##### Correlation Plot
+
+We will now create a correlation plot to see how each of the numerical variables relate to each other.
+
+```{r}
+ratings19_20  %>% 
+  select(is.numeric) %>% 
+  cor() %>% 
+  corrplot(type = "lower", diag = FALSE, method = "circle")
+```
+
+Based on the plot, we see that variables that have a strong positive correlation appear in darker blue and have bigger circles, while variables that have a negative correlation appear in red. Since we are predicting `ratings`, we will focus on variables that seem to have a strong correlation with that variable.
+
+One relationship that stands out is the strong positive correlation between `ratings` and the variables `pts`, `fgm`, `ftm`, and `fp`. This makes sense because it is expected for a player who performs better by scoring more points, making more field goals and free throws, and racking up more fantasy points to have a higher rating. This is also verified in the histogram of `pts` and `ratings` we plotted before.
+
+Another apparent relationship is the weak positive correlation between `age` and `ratings`, which implies that age has little affect on the rating of a player.
+
+##### Age
+
+Let's take a closer look at the age variable to confirm our findings in the correlation plot.
+
+```{r}
+ggplot(ratings19_20, aes(age)) +  
+  geom_boxplot(fill = "red")
+
+ratings19_20 %>% 
+  ggplot(aes(x=age, y=ratings)) + 
+  geom_jitter(width = 0.5, size = 1) +
+  geom_smooth(method = "lm", se =F, col="darkred") +
+  labs(title = "Age vs. Ratings")
+```
+
+Looking at the boxplot, we notice that the age across all the players are between 19 and 40, with the average being 25 years old. There are a few outliers for players who are in their late 30s or are 40.
+
+The graph showing the relationship between age and ratings also gives insight into how the two variables are related. Although there is a positive and linear trend, it is not very strong which means players can have a high rating in a wide range of ages. This makes sense because younger players could be more athletic and therefore perform better, while older players could have more experience and can also perform well.
+
+### Setting Up Models
+
+Now we are ready to start fitting different models to our data and see if any of them can accurately predict the rating of a player based on the predictors we have.
+
+#### Test/Train Split
+
+We will split our data into a training and testing set by setting 80% of the data as training data and the rest as testing data. We will also stratify our predictor variable `ratings` to ensure the resamples have equivalent proportions as the original data set. This split allows us to train our model on a majority of the data first, then apply it to the testing data to determine its accuracy and to avoid over-fitting.
+
+```{r}
+# Set seed for reproducible results
+set.seed(1234)
+
+ratings_split <- initial_split(ratings19_20, prop = 0.80,
+                                strata = ratings)
+ratings_train <- training(ratings_split)
+ratings_test <- testing(ratings_split)
+
+dim(ratings_train)
+dim(ratings_test)
+```
+
+We can check the dimensions of the data sets to make sure there is a good amount of data in each set for the model to train and test on.
+
+#### Creating Recipe
+
+Throughout our analysis, we will be essentially using the same procedures on different models, so it is a good idea to create 1 universal recipe using the training data for all our models, and we can make slight adjustments if necessary.
+
+We will be using all the predictors except for `player` because we only need that for identification rather than making a prediction on `ratings`. We will also center and scale the predictors to normalize our variables.
+
+```{r}
+ratings_recipe <- recipe(ratings ~ ., data = ratings_train) %>% 
+  step_rm(player) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+
+prep(ratings_recipe) %>% 
+  bake(new_data = ratings_train) %>% 
+  head()
+```
+
+#### K-Fold Cross Validation
+
+We will conduct k-fold stratified cross validation with k=10 folds. That way, each observation in the training set will be automatically assigned to one of the 10 folds. Then each fold will become a testing set once while the other k-1 folds will be the training set. Whichever model is being used is then fit to each training set and tested on the corresponding testing set. The average accuracy and root mean squared error (RMSE) can then be used as metrics on the testing set of each of the folds.
+
+We will stratify on the prediction variable `ratings` to make sure the data in each fold are balanced.
+
+```{r}
+# Creating 10 folds
+ratings_folds <- vfold_cv(ratings_train, v = 10, strata = ratings)
+```
+
+### Model Building
+
+Now it's finally time to build our models! We will be using the metric of RMSE to evaluate the performance of our regression models. This metric measures the the distance between the model's predicted values and the true values of our prediction variable. Better models will result in a lower RMSE since the predicted values will have a smaller difference compared to the actual values. Of the 7 models we will be fitting, only the top 2 best-performing models will be selected for further analysis.
+
+#### Fitting Models
+
+Each model will follow a similar process. Below is the step-by-step procedure I will be conducting for each of the models.
+
+1.  Set up the model by specifying model type, setting up its engine, and setting its mode (regression for this project) if necessary.
+2.  Set up the workflow, add the new model, and create the recipe.
+3.  Create the tuning grid to specify ranges for parameters we want to tune and how many levels of each (not applicable for linear regression model).
+4.  Tune the model and specify the workflow, k-fold cross validation folds, and the tuning grid for chosen parameters to tune.
+5.  Save the tuned models to an RDA file so we only need to run the file once and can save time in the future.
+6.  Load back the saved files.
+7.  Collect metrics of each model, arrange RMSE values in ascending order and choose the best model based on this metric.
+
+##### Linear Regression
+
+```{r}
+lm_model <- linear_reg() %>% 
+  set_engine("lm")
+
+lm_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(lm_model)
+
+lm_fit <- fit_resamples(lm_wflow, resamples = ratings_folds)
+
+lm_rmse <- collect_metrics(lm_fit) %>% filter(.metric == "rmse")
+lm_rmse
+```
+
+##### Ridge Regression
+
+```{r}
+# Tuning penalty and setting mixture to 0 to specify ridge
+ridge_model <- linear_reg(mixture = 0,
+                          penalty = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+ridge_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(ridge_model)
+
+penalty_grid <- grid_regular(penalty(range = c(-5,5)), levels = 50)
+```
+
+```{r, eval = FALSE}
+ridge_tune <- tune_grid(
+  ridge_wflow,
+  resamples = ratings_folds,
+  grid = penalty_grid
+)
+
+save(ridge_tune, file = "ridge_tune.rda")
+```
+
+```{r}
+load("ridge_tune.rda")
+
+collect_metrics(ridge_tune) %>% filter(.metric == "rmse")
+best_ridge <- show_best(ridge_tune, n = 1)
+best_ridge
+```
+
+##### Lasso Regression
+
+```{r}
+# Tuning penalty and setting mixture to 1 to specify lasso
+lasso_model <- linear_reg(penalty = tune(),
+                          mixture = 1) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+lasso_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(lasso_model)
+
+penalty_grid <- grid_regular(penalty(range = c(-5,5)), levels = 50)
+```
+
+```{r, eval = FALSE}
+lasso_tune <- tune_grid(
+  lasso_wflow,
+  resamples = ratings_folds,
+  grid = penalty_grid
+)
+
+save(lasso_tune, file = "lasso_tune.rda")
+```
+
+```{r}
+load("lasso_tune.rda")
+
+collect_metrics(lasso_tune) %>% filter(.metric == "rmse")
+best_lasso <- show_best(lasso_tune, n = 1)
+best_lasso
+```
+
+##### Elastic Net Linear Regression
+
+```{r}
+elastic_net <- linear_reg(penalty = tune(), 
+                          mixture = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+elastic_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(elastic_net)
+
+elastic_grid <- grid_regular(penalty(range = c(-5, 5)),
+                             mixture(range = c(0, 1)),
+                             levels = 10)
+```
+
+```{r, eval = FALSE}
+elastic_tune <- tune_grid(
+  elastic_wflow,
+  resamples = ratings_folds,
+  grid = elastic_grid
+)
+
+save(elastic_tune, file = "elastic_tune.rda")
+```
+
+```{r}
+load("elastic_tune.rda")
+
+collect_metrics(elastic_tune) %>% filter(.metric == "rmse")
+best_en <- show_best(elastic_tune, n = 1)
+best_en
+```
+
+##### K-Nearest Neighbors
+
+```{r}
+knn_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("kknn") 
+
+
+knn_wflow <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(ratings_recipe)
+
+knn_grid <- grid_regular(neighbors(range=c(1,15)), levels = 10)
+```
+
+```{r, eval = FALSE}
+knn_tune <- tune_grid(
+  knn_wflow,
+  resamples = ratings_folds,
+  grid = knn_grid
+)
+
+save(knn_tune, file = "knn_tune.rda")
+```
+
+```{r}
+load("knn_tune.rda")
+
+collect_metrics(knn_tune) %>% filter(.metric == "rmse")
+best_knn <- show_best(knn_tune, n = 1)
+best_knn
+```
+
+##### Random Forest
+
+```{r}
+rf_model <- rand_forest(mtry = tune(), 
+                        trees = tune(), 
+                        min_n = tune()) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+rf_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(rf_model)
+
+rf_parameter_grid <- grid_regular(mtry(range = c(1, 15)), trees(range = c(200,1000)), min_n(range = c(5,20)), levels = 8)
+```
+
+```{r, eval = FALSE}
+rf_tune<- tune_grid(
+  rf_wflow,
+  resamples = ratings_folds,
+  grid = rf_parameter_grid
+)
+
+save(rf_tune, file = "rf_tune.rda")
+```
+
+```{r}
+load("rf_tune.rda")
+
+collect_metrics(rf_tune) %>% filter(.metric == "rmse")
+best_rf <- show_best(rf_tune, n = 1)
+best_rf
+```
+
+##### Boosted Trees
+
+```{r}
+boosted_model <- boost_tree(trees = tune(),
+                            learn_rate = tune(),
+                            min_n = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("xgboost")
+
+boosted_wflow <- workflow() %>% 
+  add_recipe(ratings_recipe) %>% 
+  add_model(boosted_model)
+
+boosted_grid <- grid_regular(trees(range = c(5, 200)), learn_rate(range = c(0.01,0.1), trans = identity_trans()), min_n(range = c(40, 60)), levels = 5)
+```
+
+```{r, eval = FALSE}
+boosted_tune <- tune_grid(
+  boosted_wflow,
+  resamples = ratings_folds,
+  grid = boosted_grid
+)
+
+save(boosted_tune, file = "boosted_tune.rda")
+```
+
+```{r}
+load("boosted_tune.rda")
+
+collect_metrics(boosted_tune) %>% filter(.metric == "rmse")
+best_boosted <- show_best(boosted_tune, n = 1)
+best_boosted
+```
+
+### Model Results
+
+Now it's time to compare the results of each of the best models and see which is the best of the best!
+
+```{r}
+final_compare <- tibble(Model = c("Linear Regression", "Ridge Regression", "Lasso Regression", "Elastic Net", "K-Nearest Neighbors", "Random Forest", "Boosted Trees"), 
+                        RMSE = c(lm_rmse$mean, best_ridge$mean, best_lasso$mean, best_en$mean, best_knn$mean, best_rf$mean, best_boosted$mean))
+
+# Arrange by lowest RMSE
+final_compare <- final_compare %>% 
+  arrange(RMSE)
+
+final_compare
+```
+
+We can also visualize the best models by plotting their RMSEs in a barplot.
+
+```{r}
+# Create a data frame of the model RMSE's so we can plot
+all_models <- data.frame(Model = c("Linear Regression", "Ridge Regression", "Lasso Regression", "Elastic Net", "K Nearest Neighbors", "Random Forest", "Boosted Trees"), 
+                        RMSE = c(lm_rmse$mean, best_ridge$mean, best_lasso$mean, best_en$mean, best_knn$mean, best_rf$mean, best_boosted$mean))
+
+# Create a barplot of the RMSE values in ascending order
+ggplot(all_models, aes(x=reorder(Model, RMSE), y=RMSE)) + 
+  geom_bar(stat = "identity", aes(fill = Model)) +
+  scale_fill_manual(values = c("blue", "orange", "purple", "red", "green", "dodgerblue", "yellow")) +
+  theme(legend.position = "none") +
+  labs(title = "Comparing RMSE by Model", x = "Model")
+```
+
+From these results, we can conclude that the model that performed the best was the lasso regression, closely followed by elastic net linear regression. The models that did third and fourth best were ridge regression and linear regression. One key observation is that the simpler regression models performed better, which indicates that the data is likely pretty linear.
+
+#### Model Autoplots
+
+Autoplots allow us to visualize patterns in the tuned parameters on the performance of a model based on the RMSE metric.
+
+##### Elastic Net
+
+```{r}
+autoplot(elastic_tune, metric = "rmse")
+```
+
+For the elastic net model, we used 10 different levels to tune `penalty` and `mixture`. The y-axis for the RMSE metric is quite small, which indicates that the resulting performance does not vary drastically across the models. The x-axis represents the penalty hyperparameter (set from 0 to 1) and the different-colored lines represent the values of mixture (set from 0 to 1). From the plot, it appears that a lower `penalty` value produces a lower RMSE, which means a better performance. This is because when the penalty becomes too large, the coefficients are reduced to small values which makes it difficult for the model to predict well. Overall, all the models including the model with zero percentage of lasso penalty, or the ridge regression model in the red line, had increasing RMSE values as `penalty` increased. However, the best model was the lasso regression denoted by the pink line with `mixture` = 1 and `penalty` = 0.03.
+
+##### K-Nearest Neighbors
+
+```{r}
+autoplot(knn_tune, metric = "rmse")
+```
+
+For the KNN model, we tuned the `neighbors` parameter for the range 1 to 15. We can see from the plot that generally, as the number of neighbors increases, the RMSE decreases. Our best number of neighbors value seems to be 11 since it minimizes the RMSE.
+
+##### Random Forest
+
+```{r}
+autoplot(rf_tune, metric = "rmse")
+```
+
+For the random forest model, the parameters we tuned were minimal node size, number of predictors, and number of trees. I chose to set the number of predictors for this model to go up to 15, which is about half of my total predictors in order to avoid a bagging model where trees may become dependent on one another. From the plot, it seems that `trees`, the number of trees for the model, does not make a huge impact on the performance. However, the minimal node size, or `min_n`, appears to have slightly lower RMSE values when it is smaller. The number of predictors also seems to have a pretty big impact on the performance as the plots show that a larger `mtry`, or more predictors, results in a lower RMSE value. Our best random forest model had parameters `mtry` = 15, `trees` = 428, and `min_n` = 9.
+
+##### Boosted Trees
+
+```{r}
+autoplot(boosted_tune, metric = "rmse")
+```
+
+For the boosted trees model, we tuned learning rate, number of trees, and minimal node size with 5 different levels. The model seems to do better when the value of `learn_rate` is higher, or when the model is learning faster. Generally, an increase in `trees` also yielded lower RMSE values and better results. The minimal node size, `min_n`, seemed to not have an impact on the performance of the models. Our best boosted trees model with the lowest RMSE value was the model with `trees` = 151, `min_n` = 40, and `learn_rate` = 0.055.
+
+### Results of Best Model
+
+```{r}
+best_lasso
+```
+
+Our best model was the lasso regression model with tuned parameter `penalty` = 0.029 and RMSE of 1.696.
+
+#### Fitting to Training Data
+
+Using this best model, we will fit it to the entire training data. Once we have fit and trained the model on the training data, we can do the same for testing data.
+
+```{r}
+final_wf <- finalize_workflow(lasso_wflow, best_lasso)
+final_fit <- fit(final_wf, ratings_train)
+```
+
+### Testing Best Model
+
+Now it is time to try our best model on the testing set, which has not been trained on before.
+
+```{r}
+train_rmse <- best_lasso$mean
+
+test_rmse <- augment(final_fit, new_data = ratings_test) %>%
+  rmse(truth = ratings, estimate = .pred)
+
+rmse <- c(train_rmse, test_rmse$.estimate)
+type <- c("Training", "Testing")
+result <- tibble(RMSE = rmse, "Data Set" = type)
+result
+```
+
+Our model performed slightly worse on the testing set than the training set with an RMSE of 1.804 compared to our training RMSE of 1.696. However, this is still a pretty decent outcome and our model did not perform too bad on the testing set.
+
+Now let's plot predicted values with actual values to better visualize how our model did on the testing data.
+
+```{r}
+augment(final_fit, new_data = ratings_test) %>% 
+  ggplot(aes(x = .pred, y = ratings)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(lty = 2) +
+  theme_minimal() +
+  coord_obs_pred() +
+  labs(title = "Predicted Values vs. Actual Values")
+```
+
+The predicted observations denoted by each point does a pretty good job of following the straight line, which is what the plot would look like if all the points were predicted accurately. Overall, our model was able to predict ratings of players pretty closely to their true ratings with no impossible outcomes like negative ratings predictions.
+
+```{r}
+augment(final_fit, new_data = ratings_test) %>% select(player, ratings, .pred)
+```
+
+We can also take a look at the actual versus the predicted ratings of the players in the test set. The model does a pretty good job of making these predictions and is pretty accurate with only a few points off for some players.
+
+#### Variable Importance
+
+The variable importance plot (VIP) allows us to visualize which variables are most relevant in predicting our outcome.
+
+```{r}
+# Using the training fit to create the VIP because the model was not actually fit to the testing data
+final_fit %>% 
+  extract_fit_engine() %>% 
+  vip(aesthetics = list(fill = "dodgerblue"))
+```
+
+We can immediately recognize that the variables `fp`, `pts`, `ftm`, `fga`, and `min` are among the top 5 most important variables when determining the prediction for `ratings`. It makes sense that `fp` which represents fantasy points is by far the most important variable because its calculation is actually based on other player statistics like points and field goal percentage. Additionally, offensive statistics like points, free throws made, and field goal attempts also make sense in increasing a player's rating as they generally mean the player is better. At first, `min`, or minutes played may seem like a surprising statistic that affects ratings, but it does make logical sense as better players tend to get to play more minutes.
+
+### Conclusion
+
+After testing out multiple models and conducting analysis, we can conclude that the best model to predict the rating of a player is the lasso regression model. The elastic net linear regression model also came very close and in fact the best model that was chosen had a mixture equal to 1, which means it was also a lasso regression model. We obtained this best model by comparing the RMSE metric among all the models, and this model had the lowest RMSE. This is not that surprising because lasso regression is able to perform feature selection which means less relevant variables had their coefficients shrunk to 0 which allowed for better prediction performance.
+
+The models I tested all had pretty close RMSE values. The only model that did not do as well as the rest was the K-Nearest Neighbors model. This makes sense since performance tends to decrease for KNN models when there are too many predictors. In a high dimensional data space, the data points are not close enough to each other for KNN to predict the outcome accurately.
+
+I was quite surprised that my model did as well as it did and I thought it was really interesting being able to compare specific players' actual ratings with the predicted ratings from my model. Some areas of improvement or next steps could be to introduce even more predictors such as a specific player's past ratings from previous years to test if the prediction performance is enhanced.
+
+Overall, this project of predicting NBA player ratings using real statistics of players really allowed me to explore a topic I am interested in and build upon my machine learning skills and experience, especially in the sports analytics field.
+
+### Sources
+
+This data was taken from the Kaggle data set, "[NBA 2K Ratings with Real NBA Stats](https://www.kaggle.com/code/willyiamyu/nba-2k-analysis), which was scraped by William Yu from <https://hoopshype.com/> as well as the official <https://stats.nba.com/players/> website.
+
+Additional facts and definitions mentioned in this project were found on the following websites:
+
+<https://www.kaggle.com/code/willyiamyu/nba-2k-analysis>
+
+<https://en.wikipedia.org/wiki/NBA_2K>
